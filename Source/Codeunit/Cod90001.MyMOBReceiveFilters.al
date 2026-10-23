@@ -21,6 +21,10 @@ codeunit 90001 "My MOB Receive Filters"
         _HeaderFields.Set_listValues(GetAssignedUserList());
         _HeaderFields.Set_listSeparator(';');
         _HeaderFields.Set_optional(true);
+
+        // Text filter on the purchase order's external reference (see ExternalDocNoFieldNote below)
+        _HeaderFields.Create_TextField(53, 'MyExternalDocNo', 'External Document No.', '', 35);
+        _HeaderFields.Set_optional(true);
     end;
 
     // 2) Apply the filters when the order list is fetched
@@ -40,7 +44,36 @@ codeunit 90001 "My MOB Receive Filters"
                         _WhseReceiptHeader.SetRange("Assigned User ID", _HeaderFilter.Value);
                     _IsHandled := true;
                 end;
+            'MyExternalDocNo':
+                begin
+                    if DelChr(_HeaderFilter.Value, '<>', ' ') <> '' then
+                        SetSourceNoFilterFromExternalDocNo(_HeaderFilter.Value, _WhseReceiptLine);
+                    _IsHandled := true;
+                end;
         end;
+    end;
+
+    // ExternalDocNoFieldNote: purchase orders have no "External Document No."; the vendor's own order
+    // reference lives in "Vendor Order No.". Change the field below if the business uses another one.
+    local procedure SetSourceNoFilterFromExternalDocNo(_ExternalDocNo: Text; var _WhseReceiptLine: Record "Warehouse Receipt Line")
+    var
+        PurchHeader: Record "Purchase Header";
+        SourceNoFilter: Text;
+    begin
+        PurchHeader.SetRange("Document Type", PurchHeader."Document Type"::Order);
+        PurchHeader.SetFilter("Vendor Order No.", '@*' + _ExternalDocNo + '*');
+        if PurchHeader.FindSet() then
+            repeat
+                if SourceNoFilter <> '' then
+                    SourceNoFilter += '|';
+                SourceNoFilter += PurchHeader."No.";
+            until PurchHeader.Next() = 0;
+
+        _WhseReceiptLine.SetRange("Source Type", Database::"Purchase Line");
+        if SourceNoFilter = '' then
+            _WhseReceiptLine.SetRange("Source No.", '<none>') // nothing matches: show no receipts
+        else
+            _WhseReceiptLine.SetFilter("Source No.", SourceNoFilter);
     end;
 
     local procedure GetZoneCodeList() ReturnList: Text
